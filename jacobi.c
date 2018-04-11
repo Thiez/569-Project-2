@@ -1,3 +1,6 @@
+// Copyright (c) 2018: Dr. Yonghong Yan
+// Used and modified with permission by Peter Sanders
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
