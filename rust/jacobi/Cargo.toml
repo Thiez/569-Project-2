@@ -1,0 +1,10 @@
+[package]
+name = "jacobi"
+version = "0.1.0"
+authors = ["hxtk <peter@psanders.me>"]
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+rayon = "1.0.1"
