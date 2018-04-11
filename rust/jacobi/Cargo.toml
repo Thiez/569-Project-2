@@ -7,4 +7,4 @@ authors = ["hxtk <peter@psanders.me>"]
 crate-type = ["staticlib"]
 
 [dependencies]
-rayon = "1.0.1"
+libc = { version = "0.2.40", default-features = false }

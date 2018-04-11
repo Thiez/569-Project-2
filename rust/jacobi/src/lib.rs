@@ -1,26 +1,37 @@
-extern crate rayon;
+extern crate libc;
 
-use std::os::raw::c_int;
-use std::os::raw::c_float;
-use std::os::raw::c_long;
+use std::ops::{Index, IndexMut};
+use libc::{c_int, c_float, c_long, free, malloc, memcpy, printf};
 
-use std::vec::Vec;
+struct Matrix<T> {
+    p: T,
+    rows: usize,
+}
 
-use rayon::iter::ParallelIterator;
-use rayon::iter::IntoParallelRefIterator;
-use rayon::iter::IndexedParallelIterator;
+impl<T> Index<(usize, usize)> for Matrix<*const T> {
+    type Output = T;
+    fn index(&self, (n, m): (usize, usize)) -> &Self::Output {
+        unsafe {
+            &*self.p.offset((n*self.rows+m) as isize)
+        }
+    }
+}
 
-unsafe fn ptr_to_mat(pointer: *const c_float, rows: usize, cols: usize) -> Vec<Vec<c_float>> {
-    (0..rows)
-        .map(|row_num| {
-            (0..cols)
-                .map(|col_num| {
-                    let res = *pointer.offset(((row_num * cols) + col_num) as isize);
-                    res
-                })
-                .collect()
-        })
-        .collect()
+impl<T> Index<(usize, usize)> for Matrix<*mut T> {
+    type Output = T;
+    fn index(&self, (n, m): (usize, usize)) -> &Self::Output {
+        unsafe {
+            &*self.p.offset((n*self.rows+m) as isize)
+        }
+    }
+}
+
+impl<T> IndexMut<(usize, usize)> for Matrix<*mut T> {
+    fn index_mut(&mut self, (n, m): (usize, usize)) -> &mut <Self as Index<(usize, usize)>>::Output {
+        unsafe {
+            &mut *self.p.offset((n*self.rows+m) as isize)
+        }
+    }
 }
 
 #[no_mangle]
@@ -36,47 +47,37 @@ pub extern "C" fn jacobi(
     error_tolerance: c_float,
     max_iterations: c_int,
 ) {
-    let mut u = unsafe { ptr_to_mat(u_p, n as usize, m as usize) };
-    let f = unsafe { ptr_to_mat(f_p, n as usize, m as usize) };
+    let n = n as usize;
+    let m = m as usize;
+    let mut u = Matrix { p: u_p, rows: n };
+    let f = Matrix { p: f_p, rows: n };
     let ax = 1.0 / (dx * dx);
     let ay = 1.0 / (dy * dy);
     let b = ((-2.0 * ax) - (2.0 * ay)) - alpha;
 
+    let u_size = n * m * std::mem::size_of::<c_float>();
+    let u_old = unsafe {
+        malloc(u_size)
+    };
     for iter in 0..max_iterations {
-        u = u.par_iter()
-            .enumerate()
-            .map(|(i, row)| {
-                row.par_iter()
-                    .enumerate()
-                    .map(|(j, elem)| {
-                        if (i == 1) || (j == 1) || (i == (n - 1) as usize)
-                            || (j == (m - 1) as usize)
-                        {
-                            *elem
-                        } else {
-                            let resid =
-                                (ax * (u[i.saturating_sub(1)][j] + u[i.saturating_add(1)][j])
-                                    + ay * (u[i][j.saturating_sub(1)] + u[i][j.saturating_add(1)])
-                                    + b * u[i][j] - f[i][j]) / b;
-
-                            elem - (omega * resid)
-                        }
-                    })
-                    .collect()
-            })
-            .collect();
-
-        if iter % 500 == 0 {
-            println!("finished iteration {}", iter);
+        unsafe {
+            memcpy(u_old, u.p as *const _, u_size);
         }
-    }
-
-    // Write to output pointer
-    unsafe {
-        for (i, row) in u.iter_mut().enumerate() {
-            for (j, elem) in row.iter_mut().enumerate() {
-                *u_p.offset((((m as isize) * (i as isize)) + (j as isize))) = *elem;
+        let u_old = Matrix { p: u_old as *const c_float, rows: n };
+        for i in 1..(n-1) {
+            for j in 1..(m-1) {
+                let resid = (ax * (u_old[(i-1, j)] + u_old[(i+1, j)])
+                        + ay * (u_old[(i, j -1)] + u_old[(i, j+1)])
+                        + b * u_old[(i,j)] - f[(i,j)]) / b;
+                u[(i, j)] = u_old[(i,j)] - omega * resid;
             }
         }
+
+        if iter % 500 == 0 {
+            unsafe { printf(&"finished iteration %d\n\0".as_bytes()[0] as *const _ as *const _, iter as c_int); }
+        }
+    }
+    unsafe {
+        free(u_old);
     }
 }
